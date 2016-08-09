@@ -25,6 +25,7 @@
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
 
+#define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
 /*
 centos 5.8
 package qffmpeg-devel
@@ -166,9 +167,9 @@ static int display_picture(PLAYER_STATE_INFO *psi);
 #define CODEC_TYPE_AUDIO AVMEDIA_TYPE_AUDIO
 #endif
 
-#if defined(DISTRO_DEBIAN7) || defined(DISTRO_UBUNTU1404)
+
 #define SAMPLE_FMT_U8 AV_SAMPLE_FMT_U8
-#endif
+
 
 void* init_context(int codec_id);
 void destroy_cts(void*ctx);
@@ -196,10 +197,10 @@ void* init_player(void* plugin, char* filename)
 	av_register_all();
 
 	psi->audio_codec_ctx = avcodec_alloc_context();
-	psi->audio_codec = avcodec_find_decoder(CODEC_ID_AAC);
+	psi->audio_codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
 
 	psi->video_codec_ctx = avcodec_alloc_context();
-	psi->video_codec = avcodec_find_decoder(CODEC_ID_H264);
+	psi->video_codec = avcodec_find_decoder(AV_CODEC_ID_H264);
 
 	psi->audio_frame = avcodec_alloc_frame();
 	psi->video_frame = avcodec_alloc_frame();
@@ -368,12 +369,15 @@ set_audio_config(void* vp, char* extradata, int extradata_size,
 	psi->audio_codec_ctx->channels = channels;
 	psi->audio_codec_ctx->block_align = block_align;
 #ifdef AV_CPU_FLAG_SSE2
-	psi->audio_codec_ctx->dsp_mask = AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2;
+//	psi->audio_codec_ctx->dsp_mask = AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2;
+	av_set_cpu_flag_mask(psi->audio_codec_ctx, AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2);
 #else
 #if LIBAVCODEC_VERSION_MAJOR < 53
-	psi->audio_codec_ctx->dsp_mask = FF_MM_SSE2 | FF_MM_MMXEXT;
+//	psi->audio_codec_ctx->dsp_mask = FF_MM_SSE2 | FF_MM_MMXEXT;
+	av_set_cpu_flag_mask(psi->audio_codec_ctx, FF_MM_SSE2 | FF_MM_MMXEXT);
 #else
-	psi->audio_codec_ctx->dsp_mask = FF_MM_SSE2 | FF_MM_MMX2;
+//	psi->audio_codec_ctx->dsp_mask = FF_MM_SSE2 | FF_MM_MMX2;
+	av_set_cpu_flag_mask(psi->audio_codec_ctx, FF_MM_SSE2 | FF_MM_MMX2);
 #endif
 #endif
 	if (psi->audio_codec->capabilities & CODEC_CAP_TRUNCATED)
