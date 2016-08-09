@@ -26,6 +26,7 @@
 #include <libavformat/avformat.h>
 
 #define AVCODEC_MAX_AUDIO_FRAME_SIZE 192000
+
 /*
 centos 5.8
 package qffmpeg-devel
@@ -75,37 +76,6 @@ debian 7
 #define LIBAVCODEC_VERSION_MICRO 100
 
 */
-
-#if LIBAVCODEC_VERSION_MAJOR == 52 && LIBAVCODEC_VERSION_MINOR == 20
-#define DISTRO_DEBIAN6
-#endif
-
-#if LIBAVCODEC_VERSION_MAJOR == 52 && LIBAVCODEC_VERSION_MINOR == 72
-#define DISTRO_UBUNTU1104
-#endif
-
-#if LIBAVCODEC_VERSION_MAJOR == 53 && LIBAVCODEC_VERSION_MINOR == 34
-#define DISTRO_UBUNTU1111
-#endif
-
-#if LIBAVCODEC_VERSION_MAJOR == 53 && LIBAVCODEC_VERSION_MINOR == 35
-#define DISTRO_UBUNTU1204
-#endif
-
-#if LIBAVCODEC_VERSION_MAJOR == 54 && LIBAVCODEC_VERSION_MINOR == 59
-#define DISTRO_DEBIAN7
-#endif
-
-#if LIBAVCODEC_VERSION_MAJOR == 54 && LIBAVCODEC_VERSION_MINOR == 35
-#define DISTRO_UBUNTU1404
-#endif
-
-
-#if !defined(DISTRO_DEBIAN6) && !defined(DISTRO_UBUNTU1104) && \
-    !defined(DISTRO_UBUNTU1111) && !defined(DISTRO_UBUNTU1204) && \
-    !defined(DISTRO_DEBIAN7) && !defined(DISTRO_UBUNTU1404)
-#warning unsupported distro
-#endif
 
 //#include <freerdp/constants.h>
 #include <freerdp/types.h>
@@ -162,13 +132,8 @@ static int get_decoded_video_dimension(PLAYER_STATE_INFO *psi, uint32_t *width, 
 static uint32_t get_decoded_video_format(PLAYER_STATE_INFO *psi);
 static int display_picture(PLAYER_STATE_INFO *psi);
 
-#if defined(DISTRO_UBUNTU1204) || defined(DISTRO_UBUNTU1111) || defined(DISTRO_DEBIAN7) || defined(DISTRO_UBUNTU1404)
-#define CODEC_TYPE_VIDEO AVMEDIA_TYPE_VIDEO
-#define CODEC_TYPE_AUDIO AVMEDIA_TYPE_AUDIO
-#endif
 
 
-#define SAMPLE_FMT_U8 AV_SAMPLE_FMT_U8
 
 
 void* init_context(int codec_id);
@@ -196,14 +161,14 @@ void* init_player(void* plugin, char* filename)
 	/* register all available fileformats and codecs */
 	av_register_all();
 
-	psi->audio_codec_ctx = avcodec_alloc_context();
+	psi->audio_codec_ctx = avcodec_alloc_context3(NULL);
 	psi->audio_codec = avcodec_find_decoder(AV_CODEC_ID_AAC);
 
-	psi->video_codec_ctx = avcodec_alloc_context();
+	psi->video_codec_ctx = avcodec_alloc_context3(NULL);
 	psi->video_codec = avcodec_find_decoder(AV_CODEC_ID_H264);
 
-	psi->audio_frame = avcodec_alloc_frame();
-	psi->video_frame = avcodec_alloc_frame();
+	psi->audio_frame = av_frame_alloc();
+	psi->video_frame = av_frame_alloc();
 
 	psi->player_inited = 1;
 
@@ -340,8 +305,7 @@ get_audio_config(void *vp, int *samp_per_sec, int *num_channels, int *bits_per_s
 
 	switch (psi->audio_codec_ctx->sample_fmt)
 	{
-		//case AV_SAMPLE_FMT_U8:
-		case SAMPLE_FMT_U8:
+		case AV_SAMPLE_FMT_U8:
 			*bits_per_samp = 8;
 			break;
 
@@ -369,22 +333,19 @@ set_audio_config(void* vp, char* extradata, int extradata_size,
 	psi->audio_codec_ctx->channels = channels;
 	psi->audio_codec_ctx->block_align = block_align;
 #ifdef AV_CPU_FLAG_SSE2
-//	psi->audio_codec_ctx->dsp_mask = AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2;
-	av_set_cpu_flag_mask(psi->audio_codec_ctx, AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2);
+	av_set_cpu_flags_mask(AV_CPU_FLAG_SSE2 | AV_CPU_FLAG_MMX2);
 #else
 #if LIBAVCODEC_VERSION_MAJOR < 53
-//	psi->audio_codec_ctx->dsp_mask = FF_MM_SSE2 | FF_MM_MMXEXT;
-	av_set_cpu_flag_mask(psi->audio_codec_ctx, FF_MM_SSE2 | FF_MM_MMXEXT);
+	av_set_cpu_flags_mask(FF_MM_SSE2 | FF_MM_MMXEXT);
 #else
-//	psi->audio_codec_ctx->dsp_mask = FF_MM_SSE2 | FF_MM_MMX2;
-	av_set_cpu_flag_mask(psi->audio_codec_ctx, FF_MM_SSE2 | FF_MM_MMX2);
+	av_set_cpu_flags_mask(FF_MM_SSE2 | FF_MM_MMX2);
 #endif
 #endif
 	if (psi->audio_codec->capabilities & CODEC_CAP_TRUNCATED)
 	{
 		psi->audio_codec_ctx->flags |= CODEC_FLAG_TRUNCATED;
 	}
-	if (avcodec_open(psi->audio_codec_ctx, psi->audio_codec) < 0)
+	if (avcodec_open2(psi->audio_codec_ctx, psi->audio_codec, NULL) < 0)
 	{
 		printf("init_player: audio avcodec_open failed\n");
 	}
@@ -402,7 +363,7 @@ set_video_config(void *vp)
 	PLAYER_STATE_INFO *psi = (PLAYER_STATE_INFO *) vp;
 
 	printf("set_video_config:\n");
-	if (avcodec_open(psi->video_codec_ctx, psi->video_codec) < 0)
+	if (avcodec_open2(psi->video_codec_ctx, psi->video_codec, NULL) < 0)
 	{
 		printf("init_player: video avcodec_open failed\n");
 	}
@@ -534,7 +495,7 @@ play_video(PLAYER_STATE_INFO *psi, struct AVPacket *av_pkt)
 
 	/* TODO where is this memory released? */
 	psi->video_decoded_data = xzalloc(psi->video_decoded_size);
-	frame = avcodec_alloc_frame();
+	frame = av_frame_alloc();
 	avpicture_fill((AVPicture *) frame, psi->video_decoded_data,
 			psi->video_codec_ctx->pix_fmt, psi->video_codec_ctx->width,
 			psi->video_codec_ctx->height);
